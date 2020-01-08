@@ -39,11 +39,12 @@ Engine::Engine(Delegate& delegate,
                const PointerDataDispatcherMaker& dispatcher_maker,
                DartVM& vm,
                fml::RefPtr<const DartSnapshot> isolate_snapshot,
-               fml::RefPtr<const DartSnapshot> shared_snapshot,
                TaskRunners task_runners,
                Settings settings,
                std::unique_ptr<Animator> animator,
-               fml::WeakPtr<IOManager> io_manager)
+               fml::WeakPtr<IOManager> io_manager,
+               fml::RefPtr<SkiaUnrefQueue> unref_queue,
+               fml::WeakPtr<SnapshotDelegate> snapshot_delegate)
     : delegate_(delegate),
       settings_(std::move(settings)),
       animator_(std::move(animator)),
@@ -58,12 +59,13 @@ Engine::Engine(Delegate& delegate,
   // object as its delegate. The delegate may be called in the constructor and
   // we want to be fully initilazed by that point.
   runtime_controller_ = std::make_unique<RuntimeController>(
-      *this,                                 // runtime delegate
-      &vm,                                   // VM
-      std::move(isolate_snapshot),           // isolate snapshot
-      std::move(shared_snapshot),            // shared snapshot
-      task_runners_,                         // task runners
+      *this,                        // runtime delegate
+      &vm,                          // VM
+      std::move(isolate_snapshot),  // isolate snapshot
+      task_runners_,                // task runners
+      std::move(snapshot_delegate),
       std::move(io_manager),                 // io manager
+      std::move(unref_queue),                // Skia unref queue
       image_decoder_.GetWeakPtr(),           // image decoder
       settings_.advisory_script_uri,         // advisory script uri
       settings_.advisory_script_entrypoint,  // advisory script entrypoint
@@ -125,6 +127,9 @@ Engine::RunStatus Engine::Run(RunConfiguration configuration) {
     FML_LOG(ERROR) << "Engine run configuration was invalid.";
     return RunStatus::Failure;
   }
+
+  last_entry_point_ = configuration.GetEntrypoint();
+  last_entry_point_library_ = configuration.GetEntrypointLibrary();
 
   auto isolate_launch_status =
       PrepareAndLaunchIsolate(std::move(configuration));
@@ -306,7 +311,7 @@ bool Engine::HandleLifecyclePlatformMessage(PlatformMessage* message) {
   const auto& data = message->data();
   std::string state(reinterpret_cast<const char*>(data.data()), data.size());
   if (state == "AppLifecycleState.paused" ||
-      state == "AppLifecycleState.suspending") {
+      state == "AppLifecycleState.detached") {
     activity_running_ = false;
     StopAnimator();
   } else if (state == "AppLifecycleState.resumed" ||
@@ -432,12 +437,12 @@ void Engine::Render(std::unique_ptr<flutter::LayerTree> layer_tree) {
   if (!layer_tree)
     return;
 
-  SkISize frame_size = SkISize::Make(viewport_metrics_.physical_width,
-                                     viewport_metrics_.physical_height);
-  if (frame_size.isEmpty())
+  // Ensure frame dimensions are sane.
+  if (layer_tree->frame_size().isEmpty() ||
+      layer_tree->frame_physical_depth() <= 0.0f ||
+      layer_tree->frame_device_pixel_ratio() <= 0.0f)
     return;
 
-  layer_tree->set_frame_size(frame_size);
   animator_->Render(std::move(layer_tree));
 }
 
@@ -475,8 +480,8 @@ void Engine::DoDispatchPacket(std::unique_ptr<PointerDataPacket> packet,
   }
 }
 
-void Engine::ScheduleSecondaryVsyncCallback(fml::closure callback) {
-  animator_->ScheduleSecondaryVsyncCallback(std::move(callback));
+void Engine::ScheduleSecondaryVsyncCallback(const fml::closure& callback) {
+  animator_->ScheduleSecondaryVsyncCallback(callback);
 }
 
 void Engine::HandleAssetPlatformMessage(fml::RefPtr<PlatformMessage> message) {
@@ -498,6 +503,14 @@ void Engine::HandleAssetPlatformMessage(fml::RefPtr<PlatformMessage> message) {
   }
 
   response->CompleteEmpty();
+}
+
+const std::string& Engine::GetLastEntrypoint() const {
+  return last_entry_point_;
+}
+
+const std::string& Engine::GetLastEntrypointLibrary() const {
+  return last_entry_point_library_;
 }
 
 }  // namespace flutter

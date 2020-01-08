@@ -36,6 +36,11 @@ TEST_F(ShellTest, CacheSkSLWorks) {
   auto settings = CreateSettingsForFixture();
   settings.cache_sksl = true;
   settings.dump_skp_on_shader_compilation = true;
+
+  fml::AutoResetWaitableEvent firstFrameLatch;
+  settings.frame_rasterized_callback =
+      [&firstFrameLatch](const FrameTiming& t) { firstFrameLatch.Signal(); };
+
   auto sksl_config = RunConfiguration::InferFromSettings(settings);
   sksl_config.SetEntrypoint("emptyMain");
   std::unique_ptr<Shell> shell = CreateShell(settings);
@@ -51,13 +56,11 @@ TEST_F(ShellTest, CacheSkSLWorks) {
     SkPath path;
     path.addCircle(50, 50, 20);
     auto physical_shape_layer = std::make_shared<PhysicalShapeLayer>(
-        SK_ColorRED, SK_ColorBLUE, 1.0f, 1.0f, 1.0f, path, Clip::antiAlias);
+        SK_ColorRED, SK_ColorBLUE, 1.0f, path, Clip::antiAlias);
     root->Add(physical_shape_layer);
   };
   PumpOneFrame(shell.get(), 100, 100, builder);
-  fml::Status result =
-      shell->WaitForFirstFrame(fml::TimeDelta::FromMilliseconds(1000));
-  ASSERT_TRUE(result.ok());
+  firstFrameLatch.Wait();
   WaitForIO(shell.get());
 
   // Some skp should be dumped due to shader compilations.
@@ -84,13 +87,13 @@ TEST_F(ShellTest, CacheSkSLWorks) {
   settings.dump_skp_on_shader_compilation = true;
   auto normal_config = RunConfiguration::InferFromSettings(settings);
   normal_config.SetEntrypoint("emptyMain");
-  shell.reset();
+  DestroyShell(std::move(shell));
   shell = CreateShell(settings);
   PlatformViewNotifyCreated(shell.get());
   RunEngine(shell.get(), std::move(normal_config));
+  firstFrameLatch.Reset();
   PumpOneFrame(shell.get(), 100, 100, builder);
-  result = shell->WaitForFirstFrame(fml::TimeDelta::FromMilliseconds(1000));
-  ASSERT_TRUE(result.ok());
+  firstFrameLatch.Wait();
   WaitForIO(shell.get());
 
   // To check that all shaders are precompiled, verify that no new skp is dumped
@@ -117,6 +120,7 @@ TEST_F(ShellTest, CacheSkSLWorks) {
     return true;
   };
   fml::VisitFiles(dir.fd(), remove_visitor);
+  DestroyShell(std::move(shell));
 }
 
 }  // namespace testing

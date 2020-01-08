@@ -222,21 +222,27 @@ bool WriteAtomically(const fml::UniqueFD& base_directory,
                     base_directory.get(), file_name) == 0;
 }
 
-bool VisitFiles(const fml::UniqueFD& directory, FileVisitor visitor) {
-  // We cannot call closedir(dir) because it will also close the corresponding
-  // UniqueFD, and later reference to that UniqueFD will fail. Also, we don't
-  // have to call closedir because UniqueFD will call close on its destructor.
-  DIR* dir = ::fdopendir(directory.get());
-  if (dir == nullptr) {
+bool VisitFiles(const fml::UniqueFD& directory, const FileVisitor& visitor) {
+  fml::UniqueFD dup_fd(dup(directory.get()));
+  if (!dup_fd.is_valid()) {
+    FML_DLOG(ERROR) << "Can't dup the directory fd. Error: " << strerror(errno);
+    return true;  // continue to visit other files
+  }
+
+  fml::UniqueDir dir(::fdopendir(dup_fd.get()));
+  if (!dir.is_valid()) {
     FML_DLOG(ERROR) << "Can't open the directory. Error: " << strerror(errno);
     return true;  // continue to visit other files
   }
 
+  // The directory fd will be closed by `closedir`.
+  (void)dup_fd.release();
+
   // Without `rewinddir`, `readir` will directly return NULL (end of dir is
   // reached) after a previuos `VisitFiles` call for the same `const
   // fml::UniqueFd& directory`.
-  rewinddir(dir);
-  while (dirent* ent = readdir(dir)) {
+  rewinddir(dir.get());
+  while (dirent* ent = readdir(dir.get())) {
     std::string filename = ent->d_name;
     if (filename != "." && filename != "..") {
       if (!visitor(directory, filename)) {
@@ -244,6 +250,7 @@ bool VisitFiles(const fml::UniqueFD& directory, FileVisitor visitor) {
       }
     }
   }
+
   return true;
 }
 

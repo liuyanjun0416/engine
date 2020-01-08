@@ -23,10 +23,52 @@ felt build --watch
 
 If you don't want to add `felt` to your path, you can still invoke it using a relative path like `./web_ui/dev/felt <command>`
 
+## Speeding up your builds
+You can speed up your builds by using more CPU cores. Pass `-j` to specify the desired level of parallelism, like so:
+```
+felt build [-w] -j 100
+```
+If you are a Google employee, you can use an internal instance of Goma to parallelize your builds. Because Goma compiles code on remote servers, this option is effective even on low-powered laptops.
+
+## Running web engine tests
+To run all tests on Chrome:
+
+```
+felt test
+```
+
+To run tests on Firefox (this will work only on a Linux device):
+
+```
+felt test --browser=firefox
+```
+
+For Chrome and Firefox, the tests run on a version locked on the [browser_lock.yaml](https://github.com/flutter/engine/blob/master/lib/web_ui/dev/browser_lock.yaml). In order to use another version, add the version argument:
+
+```
+felt test --browser=firefox --firefox-version=70.0.1
+```
+
+To run tests on Safari use the following command. It works on MacOS devices and it uses the Safari installed on the OS. Currently there is no option for using another Safari version.
+
+```
+felt test --browser=safari
+```
+
+To run a single test:
+```
+felt test test/golden_tests/engine/canvas_golden_test.dart
+```
+
+To debug a test on Chrome:
+```
+felt test --debug test/golden_tests/engine/canvas_golden_test.dart
+```
+
 ## Configuration files
 
-`chrome_lock.yaml` contains the version of Chrome we use to test Flutter for
-web. Chrome is not automatically updated whenever a new release is available.
+`browser_lock.yaml` contains the version of browsers we use to test Flutter for
+web. Versions are not automatically updated whenever a new release is available.
 Instead, we update this file manually once in a while.
 
 `goldens_lock.yaml` refers to a revision in the https://github.com/flutter/goldens
@@ -34,3 +76,18 @@ repo. Screenshot tests are compared with the golden files at that revision.
 When making engine changes that affect screenshots, first submit a PR to
 flutter/goldens updating the screenshots. Then update this file pointing to
 the new revision.
+
+## Developing the `felt` tool
+If you are making changes in the `felt` tool itself, you need to be aware of Dart snapshots. We create a Dart snapshot of the `felt` tool to make the startup faster.
+
+To make sure you are running the `felt` tool with your changes included, you would need to stop using the snapshot. This can be achived through the environment variable `FELT_USE_SNAPSHOT`:
+
+```
+FELT_USE_SNAPSHOT=false felt <command>
+```
+or
+```
+FELT_USE_SNAPSHOT=0 felt <command>
+```
+
+_**Note**: if `FELT_USE_SNAPSHOT` is omitted or has any value other than "false" or "0", the snapshot mode will be enabled._

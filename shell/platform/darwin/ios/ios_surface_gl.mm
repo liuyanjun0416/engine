@@ -49,11 +49,13 @@ intptr_t IOSSurfaceGL::GLContextFBO() const {
   return IsValid() ? render_target_->framebuffer() : GL_NONE;
 }
 
-bool IOSSurfaceGL::UseOffscreenSurface() const {
-  // The onscreen surface wraps a GL renderbuffer, which is extremely slow to read.
-  // Certain filter effects require making a copy of the current destination, so we
-  // always render to an offscreen surface, which will be much quicker to read/copy.
-  return true;
+bool IOSSurfaceGL::SurfaceSupportsReadback() const {
+  // The onscreen surface wraps a GL renderbuffer, which is extremely slow to read on iOS.
+  // Certain filter effects, in particular BackdropFilter, require making a copy of
+  // the current destination. For performance, the iOS surface will specify that it
+  // does not support readback so that the engine compositor can implement a workaround
+  // such as rendering the scene to an offscreen surface or Skia saveLayer.
+  return false;
 }
 
 bool IOSSurfaceGL::GLContextMakeCurrent() {
@@ -74,7 +76,7 @@ bool IOSSurfaceGL::GLContextPresent() {
 }
 
 // |ExternalViewEmbedder|
-sk_sp<SkSurface> IOSSurfaceGL::GetRootSurface() {
+SkCanvas* IOSSurfaceGL::GetRootCanvas() {
   // On iOS, the root surface is created from the on-screen render target. Only the surfaces for the
   // various overlays are controlled by this class.
   return nullptr;
@@ -100,7 +102,7 @@ void IOSSurfaceGL::CancelFrame() {
 }
 
 // |ExternalViewEmbedder|
-void IOSSurfaceGL::BeginFrame(SkISize frame_size, GrContext* context) {
+void IOSSurfaceGL::BeginFrame(SkISize frame_size, GrContext* context, double device_pixel_ratio) {
   FlutterPlatformViewsController* platform_views_controller = GetPlatformViewsController();
   FML_CHECK(platform_views_controller != nullptr);
   platform_views_controller->SetFrameSize(frame_size);

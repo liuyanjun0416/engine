@@ -90,6 +90,8 @@ public class TextInputPlugin {
             }
         });
 
+        textInputChannel.requestExistingInputState();
+
         this.platformViewsController = platformViewsController;
         this.platformViewsController.attachTextInputPlugin(this);
         restartAlwaysRequired = isRestartAlwaysRequired();
@@ -98,6 +100,10 @@ public class TextInputPlugin {
     @NonNull
     public InputMethodManager getInputMethodManager() {
         return mImm;
+    }
+
+    @VisibleForTesting Editable getEditable() {
+        return mEditable;
     }
 
     /***
@@ -138,6 +144,7 @@ public class TextInputPlugin {
         TextInputChannel.InputType type,
         boolean obscureText,
         boolean autocorrect,
+        boolean enableSuggestions,
         TextInputChannel.TextCapitalization textCapitalization
     ) {
         if (type.type == TextInputChannel.TextInputType.DATETIME) {
@@ -172,6 +179,7 @@ public class TextInputPlugin {
             textType |= InputType.TYPE_TEXT_VARIATION_PASSWORD;
         } else {
             if (autocorrect) textType |= InputType.TYPE_TEXT_FLAG_AUTO_CORRECT;
+            if (!enableSuggestions) textType |= InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS;
         }
 
         if (textCapitalization == TextInputChannel.TextCapitalization.CHARACTERS) {
@@ -203,6 +211,7 @@ public class TextInputPlugin {
             configuration.inputType,
             configuration.obscureText,
             configuration.autocorrect,
+            configuration.enableSuggestions,
             configuration.textCapitalization
         );
         outAttrs.imeOptions = EditorInfo.IME_FLAG_NO_FULLSCREEN;
@@ -301,15 +310,21 @@ public class TextInputPlugin {
     }
 
     @VisibleForTesting void setTextInputEditingState(View view, TextInputChannel.TextEditState state) {
-        if (!restartAlwaysRequired && !mRestartInputPending && state.text.equals(mEditable.toString())) {
-            applyStateToSelection(state);
+        // Always replace the contents of mEditable if the text differs
+        if (!state.text.equals(mEditable.toString())) {
+            mEditable.replace(0, mEditable.length(), state.text);
+        }
+        // Always apply state to selection which handles updating the selection if needed.
+        applyStateToSelection(state);
+        // Use updateSelection to update imm on selection if it is not neccessary to restart.
+        if (!restartAlwaysRequired && !mRestartInputPending) {
             mImm.updateSelection(mView, Math.max(Selection.getSelectionStart(mEditable), 0),
                     Math.max(Selection.getSelectionEnd(mEditable), 0),
                     BaseInputConnection.getComposingSpanStart(mEditable),
                     BaseInputConnection.getComposingSpanEnd(mEditable));
+        // Restart if there is a pending restart or the device requires a force restart
+        // (see isRestartAlwaysRequired). Restarting will also update the selection.
         } else {
-            mEditable.replace(0, mEditable.length(), state.text);
-            applyStateToSelection(state);
             mImm.restartInput(view);
             mRestartInputPending = false;
         }

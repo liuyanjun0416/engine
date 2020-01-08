@@ -48,19 +48,19 @@ class IOSSurfaceGL final : public IOSSurface,
 
   intptr_t GLContextFBO() const override;
 
-  bool UseOffscreenSurface() const override;
+  bool SurfaceSupportsReadback() const override;
 
   // |GPUSurfaceGLDelegate|
   ExternalViewEmbedder* GetExternalViewEmbedder() override;
 
   // |ExternalViewEmbedder|
-  sk_sp<SkSurface> GetRootSurface() override;
+  SkCanvas* GetRootCanvas() override;
 
   // |ExternalViewEmbedder|
   void CancelFrame() override;
 
   // |ExternalViewEmbedder|
-  void BeginFrame(SkISize frame_size, GrContext* context) override;
+  void BeginFrame(SkISize frame_size, GrContext* context, double device_pixel_ratio) override;
 
   // |ExternalViewEmbedder|
   void PrerollCompositeEmbeddedView(int view_id,

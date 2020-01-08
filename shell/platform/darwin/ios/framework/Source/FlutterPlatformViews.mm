@@ -253,7 +253,7 @@ UIView* FlutterPlatformViewsController::ReconstructClipViewsChain(int number_of_
   // If there were not enough existing clip views, add more.
   while (clipIndex < number_of_clips) {
     ChildClippingView* clippingView =
-        [[ChildClippingView alloc] initWithFrame:flutter_view_.get().bounds];
+        [[[ChildClippingView alloc] initWithFrame:flutter_view_.get().bounds] autorelease];
     [clippingView addSubview:head];
     head = clippingView;
     clipIndex++;
@@ -368,12 +368,15 @@ bool FlutterPlatformViewsController::SubmitFrame(GrContext* gr_context,
 
   bool did_submit = true;
   for (int64_t view_id : composition_order_) {
-    EnsureOverlayInitialized(view_id, std::move(gl_context), gr_context);
+    EnsureOverlayInitialized(view_id, gl_context, gr_context);
     auto frame = overlays_[view_id]->surface->AcquireFrame(frame_size_);
-    SkCanvas* canvas = frame->SkiaCanvas();
-    canvas->drawPicture(picture_recorders_[view_id]->finishRecordingAsPicture());
-    canvas->flush();
-    did_submit &= frame->Submit();
+    // If frame is null, AcquireFrame already printed out an error message.
+    if (frame) {
+      SkCanvas* canvas = frame->SkiaCanvas();
+      canvas->drawPicture(picture_recorders_[view_id]->finishRecordingAsPicture());
+      canvas->flush();
+      did_submit &= frame->Submit();
+    }
   }
   picture_recorders_.clear();
   if (composition_order_ == active_composition_order_) {
@@ -398,6 +401,7 @@ bool FlutterPlatformViewsController::SubmitFrame(GrContext* gr_context,
     } else {
       [flutter_view addSubview:platform_view_root];
       [flutter_view addSubview:overlay];
+      overlay.frame = flutter_view.bounds;
     }
 
     active_composition_order_.push_back(view_id);
@@ -463,8 +467,7 @@ void FlutterPlatformViewsController::EnsureOverlayInitialized(
     if (overlays_.count(overlay_id) != 0) {
       return;
     }
-    fml::scoped_nsobject<FlutterOverlayView> overlay_view(
-        [[[FlutterOverlayView alloc] init] retain]);
+    fml::scoped_nsobject<FlutterOverlayView> overlay_view([[FlutterOverlayView alloc] init]);
     overlay_view.get().frame = flutter_view_.get().bounds;
     overlay_view.get().autoresizingMask =
         (UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight);
@@ -476,8 +479,9 @@ void FlutterPlatformViewsController::EnsureOverlayInitialized(
   }
 
   if (overlay_it != overlays_.end()) {
-    if (gr_context != overlays_gr_context_) {
-      overlays_gr_context_ = gr_context;
+    FlutterPlatformViewLayer* overlay = overlay_it->second.get();
+    if (gr_context != overlay->gr_context) {
+      overlay->gr_context = gr_context;
       // The overlay already exists, but the GrContext was changed so we need to recreate
       // the rendering surface with the new GrContext.
       IOSSurface* ios_surface = overlay_it->second->ios_surface.get();
@@ -488,7 +492,7 @@ void FlutterPlatformViewsController::EnsureOverlayInitialized(
   }
   auto contentsScale = flutter_view_.get().layer.contentsScale;
   fml::scoped_nsobject<FlutterOverlayView> overlay_view(
-      [[[FlutterOverlayView alloc] initWithContentsScale:contentsScale] retain]);
+      [[FlutterOverlayView alloc] initWithContentsScale:contentsScale]);
   overlay_view.get().frame = flutter_view_.get().bounds;
   overlay_view.get().autoresizingMask =
       (UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight);
@@ -497,7 +501,7 @@ void FlutterPlatformViewsController::EnsureOverlayInitialized(
   std::unique_ptr<Surface> surface = ios_surface->CreateGPUSurface(gr_context);
   overlays_[overlay_id] = std::make_unique<FlutterPlatformViewLayer>(
       std::move(overlay_view), std::move(ios_surface), std::move(surface));
-  overlays_gr_context_ = gr_context;
+  overlays_[overlay_id]->gr_context = gr_context;
 }
 
 }  // namespace flutter
